@@ -69,7 +69,7 @@ def get_engine():
     """Returns SQLAlchemy engine using pure-Python pg8000 driver with clean SSL parameters."""
     raw_url = str(cfg("DATABASE_URL", "sqlite:///reaction_hazard.db"))
     
-    # Remove query parameters like ?sslmode=... or &channel_binding=... for pg8000 compatibility
+    # Remove query parameters like ?sslmode=... for pg8000 compatibility
     if "?" in raw_url:
         base_url = raw_url.split("?")[0]
     else:
@@ -156,7 +156,7 @@ def send_payment_email_notification(user_email, amount, currency, reference):
     
     User Email: {user_email}
     Amount Paid: {currency} {amount}
-    Reference: {reference}
+    Details/Reference: {reference}
     Date: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}
     
     Log into your app's Admin Panel to review and approve this claim.
@@ -232,10 +232,11 @@ with st.sidebar:
         if pro_status:
             st.markdown("🎖️ **Plan:** PRO (Unlimited)")
         else:
+            free_limit = int(cfg("FREE_DAILY_RUNS", "3"))
             st.markdown("⚡ **Plan:** Free Tier")
             runs = get_daily_usage(st.session_state.user_email)
-            st.progress(runs / 5)
-            st.caption(f"Daily Runs Used: {runs} / 5")
+            st.progress(min(runs / free_limit, 1.0))
+            st.caption(f"Daily Free Runs Used: {runs} / {free_limit}")
             
         if st.button("Log Out", use_container_width=True):
             st.session_state.authenticated = False
@@ -261,9 +262,10 @@ with tab1:
     else:
         pro = is_pro_user(st.session_state.user_email)
         usage = get_daily_usage(st.session_state.user_email)
+        free_limit = int(cfg("FREE_DAILY_RUNS", "3"))
         
-        if not pro and usage >= 5:
-            st.error("❌ Daily limit reached (5/5 runs). Upgrade to Pro for unlimited assessments.")
+        if not pro and usage >= free_limit:
+            st.error(f"❌ Free limit reached ({usage}/{free_limit} runs used today). Upgrade to Pro for unlimited assessments.")
         else:
             col1, col2 = st.columns(2)
             with col1:
@@ -351,15 +353,57 @@ with tab2:
 
 # --- TAB 3: UPGRADE TO PRO ---
 with tab3:
-    st.header("Upgrade to Pro Tier")
-    st.markdown("Unlock unlimited screening assessments, automated PDF reporting, and team compliance tracking.")
+    st.header("Select Subscription Plan")
+    st.markdown("Choose a plan tailored to your laboratory and engineering compliance needs.")
     
+    # Display 3-Tier Pricing Cards
+    col_p1, col_p2, col_p3 = st.columns(3)
+    
+    with col_p1:
+        st.subheader("⚡ Starter")
+        st.markdown("### ₦13,999 / mo")
+        st.caption("Ideal for individual researchers & lab technicians")
+        st.markdown("""
+        * Unlimited Thermal Screenings
+        * Basic Simulation Curves
+        * Saved Assessment History
+        """)
+        
+    with col_p2:
+        st.subheader("🎖️ Professional")
+        st.markdown("### ₦28,999 / mo")
+        st.caption("Best for process safety consultants & plant engineers")
+        st.markdown("""
+        * Everything in Starter
+        * Cryptographic Verification Hashes
+        * Downloadable PDF Compliance Reports
+        * Priority Email Support
+        """)
+        
+    with col_p3:
+        st.subheader("🏢 Enterprise")
+        st.markdown("### ₦48,000 / mo")
+        st.caption("Designed for chemical manufacturing sites & R&D teams")
+        st.markdown("""
+        * Everything in Professional
+        * Multi-seat Team Access
+        * Custom Kinetic Parameter Modeling
+        * COMAH / OSHA Alignment Certification
+        """)
+
+    st.markdown("---")
+    st.subheader("Payment Information")
     st.markdown(cfg("BANK_DETAILS", "Contact owner for payment details."))
     
     st.subheader("Submit Payment Notice")
     with st.form("payment_form"):
-        p_amount = st.text_input("Amount Paid")
-        p_currency = st.selectbox("Currency", ["NGN", "GBP", "USD"])
+        selected_plan = st.selectbox("Select Plan to Activate", [
+            "Starter Tier (₦13,999 / $10 USD / £8 GBP)",
+            "Professional Tier (₦28,999 / $22 USD / £16 GBP)",
+            "Enterprise Tier (₦48,000 / $36 USD / £27 GBP)"
+        ])
+        p_amount = st.text_input("Amount Paid", placeholder="e.g., 13999")
+        p_currency = st.selectbox("Currency Paid", ["NGN", "GBP", "USD"])
         p_ref = st.text_input("Bank Reference / Transfer Description")
         submitted = st.form_submit_button("Notify Admin of Payment")
         
@@ -367,11 +411,12 @@ with tab3:
             if p_amount and p_ref and st.session_state.authenticated:
                 db = SessionLocal()
                 try:
+                    full_ref = f"[{selected_plan}] Ref: {p_ref}"
                     notice = PaymentNotice(
                         user_email=st.session_state.user_email,
                         amount_paid=p_amount,
                         currency=p_currency,
-                        reference=p_ref
+                        reference=full_ref
                     )
                     db.add(notice)
                     db.commit()
@@ -381,14 +426,14 @@ with tab3:
                         st.session_state.user_email, 
                         p_amount, 
                         p_currency, 
-                        p_ref
+                        full_ref
                     )
                     
-                    st.success("Payment notification submitted! Admin will activate your Pro plan upon confirmation.")
+                    st.success("Payment notification submitted! Admin will verify and activate your chosen plan upon confirmation.")
                 finally:
                     db.close()
             else:
-                st.warning("Please sign in and fill in all payment details.")
+                st.warning("Please sign in and complete all form fields.")
 
 # --- TAB 4: ADMIN PANEL ---
 with tab4:
