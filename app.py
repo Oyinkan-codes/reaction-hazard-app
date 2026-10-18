@@ -5,6 +5,8 @@ import math
 import hashlib
 import hmac
 import time
+import smtplib
+from email.mime.text import MIMEText
 from datetime import datetime, date, timedelta, timezone
 
 import streamlit as st
@@ -98,8 +100,9 @@ def get_engine():
 # Initialize engine and session globally
 engine = get_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 # ==========================================
-# 3. HELPER FUNCTIONS & AUTHENTICATION
+# 3. HELPER FUNCTIONS, EMAIL & AUTH
 # ==========================================
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -137,6 +140,39 @@ def get_daily_usage(email: str) -> int:
         return count
     finally:
         db.close()
+
+def send_payment_email_notification(user_email, amount, currency, reference):
+    """Sends an automated email notification to the admin when a payment notice is submitted."""
+    sender = cfg("GMAIL_SENDER", "")
+    password = cfg("GMAIL_APP_PASSWORD", "")
+    receiver = cfg("CONTACT_EMAIL", "oyinkansolaosibodu@gmail.com")
+    
+    if not sender or not password:
+        return  # Email notifications skipped if secrets aren't configured
+        
+    subject = f"🔔 New Pro Payment Notice: {currency} {amount} from {user_email}"
+    body = f"""
+    New payment notice submitted on Global Chemical Hazard Engine:
+    
+    User Email: {user_email}
+    Amount Paid: {currency} {amount}
+    Reference: {reference}
+    Date: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}
+    
+    Log into your app's Admin Panel to review and approve this claim.
+    """
+    
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = sender
+    msg['To'] = receiver
+    
+    try:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(sender, password)
+            server.sendmail(sender, receiver, msg.as_string())
+    except Exception as e:
+        print(f"Failed to send notification email: {e}")
 
 # Initialize Session State
 if 'authenticated' not in st.session_state:
@@ -221,7 +257,7 @@ with tab1:
     st.header("Reaction Process Screening")
     
     if not st.session_state.authenticated:
-        st.info(" Please sign in or create an account via the sidebar to run assessments.")
+        st.info("Please sign in or create an account via the sidebar to run assessments.")
     else:
         pro = is_pro_user(st.session_state.user_email)
         usage = get_daily_usage(st.session_state.user_email)
@@ -339,6 +375,15 @@ with tab3:
                     )
                     db.add(notice)
                     db.commit()
+                    
+                    # Trigger instant email notification to admin inbox
+                    send_payment_email_notification(
+                        st.session_state.user_email, 
+                        p_amount, 
+                        p_currency, 
+                        p_ref
+                    )
+                    
                     st.success("Payment notification submitted! Admin will activate your Pro plan upon confirmation.")
                 finally:
                     db.close()
