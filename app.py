@@ -64,23 +64,31 @@ class PaymentNotice(Base):
 
 @st.cache_resource(show_spinner=False)
 def get_engine():
-    """Returns SQLAlchemy engine using pure-Python pg8000 driver."""
-    url = str(cfg("DATABASE_URL", "sqlite:///reaction_hazard.db"))
+    """Returns SQLAlchemy engine using pure-Python pg8000 driver with clean SSL parameters."""
+    raw_url = str(cfg("DATABASE_URL", "sqlite:///reaction_hazard.db"))
+    
+    # Remove query parameters like ?sslmode=... or &channel_binding=... for pg8000 compatibility
+    if "?" in raw_url:
+        base_url = raw_url.split("?")[0]
+    else:
+        base_url = raw_url
     
     # Standardise driver prefix to pure-Python pg8000
-    if url.startswith("postgres://"):
-        url = "postgresql+pg8000://" + url[len("postgres://"):]
-    elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
-        url = "postgresql+pg8000://" + url[len("postgresql://"):]
-    elif "postgresql+psycopg" in url:
-        url = url.replace("postgresql+psycopg2://", "postgresql+pg8000://").replace("postgresql+psycopg://", "postgresql+pg8000://")
+    if base_url.startswith("postgres://"):
+        url = "postgresql+pg8000://" + base_url[len("postgres://"):]
+    elif base_url.startswith("postgresql://") and not base_url.startswith("postgresql+"):
+        url = "postgresql+pg8000://" + base_url[len("postgresql://"):]
+    elif "postgresql+psycopg" in base_url:
+        url = base_url.replace("postgresql+psycopg2://", "postgresql+pg8000://").replace("postgresql+psycopg://", "postgresql+pg8000://")
+    else:
+        url = base_url
         
     kwargs = {"pool_pre_ping": True}
     
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
     else:
-        # Pass SSL requirements explicitly for pg8000 / Neon.tech
+        # Pass native SSL context required by Neon.tech to pg8000
         kwargs["connect_args"] = {"ssl_context": True}
         
     engine = sa.create_engine(url, **kwargs)
@@ -90,7 +98,6 @@ def get_engine():
 # Initialize engine and session globally
 engine = get_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 # ==========================================
 # 3. HELPER FUNCTIONS & AUTHENTICATION
 # ==========================================
