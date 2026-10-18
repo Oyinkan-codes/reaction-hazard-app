@@ -87,11 +87,9 @@ def get_engine():
     Base.metadata.create_all(engine)
     return engine
 
-try:
-    engine = get_engine()
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-except Exception as e:
-    st.error(f"Database Initialization Error: {str(e)}")
+# Initialize engine and session globally
+engine = get_engine()
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # ==========================================
 # 3. HELPER FUNCTIONS & AUTHENTICATION
